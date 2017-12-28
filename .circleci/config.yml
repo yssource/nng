@@ -11,7 +11,29 @@
 #
 version: 2
 jobs:
-  build:
+  build-osx:
+    macos:
+      xcode: "9.0"
+    steps:
+        - checkout:
+        - run:
+            name: Install Dependencies
+            command: brew install cmake mbedtls asciidoctor ninja
+
+        - run:
+            name: Configure
+            command: mkdir build && cd build && cmake -DNNG_TRANSPORT_TLS=ON -G Ninja ..
+
+        - run:
+            name: Build
+            command: cd build && ninja
+
+        - run:
+            name: Run Tests
+            command: cd build && ninja test
+
+
+  build-debian:
     docker:
       - image: debian:stretch
     steps:
@@ -19,6 +41,7 @@ jobs:
       - run:
           name: Install Dependencies
           command: apt-get update -qq && apt-get install -y build-essential asciidoctor cmake libmbedtls-dev ninja-build clang clang-format
+
       - run:
           name: Configure
           command: mkdir build && cd build && cmake -DNNG_TRANSPORT_TLS=ON -G Ninja ..
@@ -34,3 +57,9 @@ jobs:
 #      - run:
 #          name: Check Format
 #          command: ./etc/format-check.sh
+workflows:
+  version: 2
+  build-test-lint:
+    jobs:
+      - build-osx
+      - build-debian
