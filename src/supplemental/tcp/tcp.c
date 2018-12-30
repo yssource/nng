@@ -51,27 +51,17 @@ nng_tcp_recv(nng_tcp *tcp, nng_aio *aio)
 }
 
 int
-nng_tcp_sockname(nng_tcp *tcp, nng_sockaddr *sa)
+nng_tcp_getopt(nng_tcp *tcp, const char *name, void *buf, size_t *szp)
 {
-	return (nni_tcp_conn_sockname((void *) tcp, sa));
+	return (nni_tcp_conn_getopt(
+	    (void *) tcp, name, buf, szp, NNI_TYPE_OPAQUE));
 }
 
 int
-nng_tcp_peername(nng_tcp *tcp, nng_sockaddr *sa)
+nng_tcp_setopt(nng_tcp *tcp, const char *name, const void *buf, size_t sz)
 {
-	return (nni_tcp_conn_peername((void *) tcp, sa));
-}
-
-int
-nng_tcp_set_nodelay(nng_tcp *tcp, bool nodelay)
-{
-	return (nni_tcp_conn_set_nodelay((void *) tcp, nodelay));
-}
-
-int
-nng_tcp_set_keepalive(nng_tcp *tcp, bool ka)
-{
-	return (nni_tcp_conn_set_keepalive((void *) tcp, ka));
+	return (
+	    nni_tcp_conn_setopt((void *) tcp, name, buf, sz, NNI_TYPE_OPAQUE));
 }
 
 int

@@ -263,6 +263,18 @@ extern int nni_tcp_conn_set_nodelay(nni_tcp_conn *, bool);
 // keepalive probes.  Tuning of these keepalives is currently unsupported.
 extern int nni_tcp_conn_set_keepalive(nni_tcp_conn *, bool);
 
+// nni_tcp_conn_setopt is like setsockopt, but uses string names. These
+// are the same names from the TCP transport, generally.  Examples are
+// NNG_OPT_TCP_NODELAY and NNG_OPT_TCP_KEEPALIVE.
+extern int nni_tcp_conn_setopt(
+    nni_tcp_conn *, const char *, const void *, size_t, nni_type);
+
+// nni_tcp_conn_getopt is like getsockopt, but uses string names.
+// We support NNG_OPT_REMADDR and NNG_OPT_LOCADDR (with argument type
+// nng_sockaddr), and NNG_OPT_TCP_NODELAY and NNG_OPT_TCP_KEEPALIVE.
+extern int nni_tcp_conn_getopt(
+    nni_tcp_conn *, const char *, void *, size_t *, nni_type);
+
 // nni_tcp_dialer_init creates a new dialer object.
 extern int nni_tcp_dialer_init(nni_tcp_dialer **);
 

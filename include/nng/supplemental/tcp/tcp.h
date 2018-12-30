@@ -58,22 +58,13 @@ NNG_DECL void nng_tcp_send(nng_tcp *, nng_aio *);
 // the iov's and resubmit as needed.
 NNG_DECL void nng_tcp_recv(nng_tcp *, nng_aio *);
 
-// nng_tcp_sockname obtains an nng_sockaddr associated with our local address.
-NNG_DECL int nng_tcp_sockname(nng_tcp *, nng_sockaddr *);
+// nng_tcp_getopt is used to retrieve socket options, using the named
+// option values, like NNG_OPT_TCP_NODELAY or NNG_OPT_REMADDR.
+NNG_DECL int nng_tcp_getopt(nng_tcp *, const char *, void *, size_t *);
 
-// nng_tcp_peername obtains an nng_sockaddr associated with our peer.
-NNG_DECL int nng_tcp_peername(nng_tcp *, nng_sockaddr *);
-
-// nng_tcp_set_nodelay is used to disable Nagle's algorithm (true) or
-// enable it.  For latency sensitive applications, disable it.  For
-// throughput operations involving tiny messages, leave it enabled.  We
-// usually recommend disabling it.
-NNG_DECL int nng_tcp_set_nodelay(nng_tcp *, bool);
-
-// nng_set_keepalive is used to enable the use of TCP keepalives.
-// At the moment there is no further tuning, because the tunables here
-// tend to be fairly platform specific.
-NNG_DECL int nng_tcp_set_keepalive(nng_tcp *, bool);
+// nng_tcp_setopt is used to set socket options, using the named
+// option values, like NNG_OPT_TCP_KEEPALIVE.
+NNG_DECL int nng_tcp_setopt(nng_tcp *, const char *, const void *, size_t);
 
 // nng_tcp_dialer_alloc is used to allocate a TCP dialer.
 NNG_DECL int nng_tcp_dialer_alloc(nng_tcp_dialer **);

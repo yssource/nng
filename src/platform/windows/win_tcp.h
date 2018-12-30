@@ -15,7 +15,7 @@
 
 #include "core/nng_impl.h"
 
-#ifdef NNG_PLATFORM_WINDOWS
+#include <nng/transport/tcp/tcp.h>
 
 struct nni_tcp_conn {
 	SOCKET            s;
@@ -60,10 +60,6 @@ struct nni_tcp_listener {
 	nni_reap_item             reap;
 };
 
-extern int  nni_win_tcp_conn_init(nni_tcp_conn **, SOCKET);
-extern void nni_win_tcp_conn_set_addrs(
-    nni_tcp_conn *, const SOCKADDR_STORAGE *, const SOCKADDR_STORAGE *);
-
-#endif // NNG_PLATFORM_WINDOWS
+extern int nni_win_tcp_conn_init(nni_tcp_conn **, SOCKET);
 
 #endif // NNG_PLATFORM_WIN_WINTCP_H

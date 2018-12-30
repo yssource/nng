@@ -353,8 +353,10 @@ tcptran_pipe_nego_cb(void *arg)
 
 	NNI_GET16(&p->rxlen[4], p->peer);
 	p->useraio = NULL;
-	(void) nni_tcp_conn_set_nodelay(p->conn, p->nodelay);
-	(void) nni_tcp_conn_set_keepalive(p->conn, p->keepalive);
+	(void) nni_tcp_conn_setopt(p->conn, NNG_OPT_TCP_NODELAY, &p->nodelay,
+	    sizeof(p->nodelay), NNI_TYPE_BOOL);
+	(void) nni_tcp_conn_setopt(p->conn, NNG_OPT_TCP_KEEPALIVE,
+	    &p->keepalive, sizeof(p->keepalive), NNI_TYPE_BOOL);
 
 	nni_mtx_unlock(&ep->mtx);
 
@@ -710,6 +712,14 @@ tcptran_pipe_get_nodelay(void *arg, void *v, size_t *szp, nni_opt_type t)
 {
 	tcptran_pipe *p = arg;
 	return (nni_copyout_bool(p->nodelay, v, szp, t));
+}
+
+static int
+tcptran_pipe_getopt(
+    void *arg, const char *name, void *buf, size_t *szp, nni_type t)
+{
+	tcptran_pipe *p = arg;
+	return (nni_tcp_conn_getopt(p->conn, name, buf, szp, t));
 }
 
 static void
@@ -1139,14 +1149,14 @@ static nni_option tcptran_pipe_options[] = {
 };
 
 static nni_tran_pipe_ops tcptran_pipe_ops = {
-	.p_init    = tcptran_pipe_init,
-	.p_fini    = tcptran_pipe_fini,
-	.p_stop    = tcptran_pipe_stop,
-	.p_send    = tcptran_pipe_send,
-	.p_recv    = tcptran_pipe_recv,
-	.p_close   = tcptran_pipe_close,
-	.p_peer    = tcptran_pipe_peer,
-	.p_options = tcptran_pipe_options,
+	.p_init   = tcptran_pipe_init,
+	.p_fini   = tcptran_pipe_fini,
+	.p_stop   = tcptran_pipe_stop,
+	.p_send   = tcptran_pipe_send,
+	.p_recv   = tcptran_pipe_recv,
+	.p_close  = tcptran_pipe_close,
+	.p_peer   = tcptran_pipe_peer,
+	.p_getopt = tcptran_pipe_getopt,
 };
 
 static nni_option tcptran_dialer_options[] = {
