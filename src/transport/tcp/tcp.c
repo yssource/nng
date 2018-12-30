@@ -1,6 +1,7 @@
 //
 // Copyright 2018 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
+// Copyright 2018 Devolutions <info@devolutions.net>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -673,48 +674,6 @@ tcptran_pipe_peer(void *arg)
 }
 
 static int
-tcptran_pipe_get_locaddr(void *arg, void *v, size_t *szp, nni_opt_type t)
-{
-	tcptran_pipe *p = arg;
-	int           rv;
-	nni_sockaddr  sa;
-
-	memset(&sa, 0, sizeof(sa));
-	if ((rv = nni_tcp_conn_sockname(p->conn, &sa)) == 0) {
-		rv = nni_copyout_sockaddr(&sa, v, szp, t);
-	}
-	return (rv);
-}
-
-static int
-tcptran_pipe_get_remaddr(void *arg, void *v, size_t *szp, nni_opt_type t)
-{
-	tcptran_pipe *p = arg;
-	int           rv;
-	nni_sockaddr  sa;
-
-	memset(&sa, 0, sizeof(sa));
-	if ((rv = nni_tcp_conn_peername(p->conn, &sa)) == 0) {
-		rv = nni_copyout_sockaddr(&sa, v, szp, t);
-	}
-	return (rv);
-}
-
-static int
-tcptran_pipe_get_keepalive(void *arg, void *v, size_t *szp, nni_opt_type t)
-{
-	tcptran_pipe *p = arg;
-	return (nni_copyout_bool(p->keepalive, v, szp, t));
-}
-
-static int
-tcptran_pipe_get_nodelay(void *arg, void *v, size_t *szp, nni_opt_type t)
-{
-	tcptran_pipe *p = arg;
-	return (nni_copyout_bool(p->nodelay, v, szp, t));
-}
-
-static int
 tcptran_pipe_getopt(
     void *arg, const char *name, void *buf, size_t *szp, nni_type t)
 {
@@ -1124,29 +1083,6 @@ tcptran_ep_get_locaddr(void *arg, void *buf, size_t *szp, nni_opt_type t)
 	nni_mtx_unlock(&ep->mtx);
 	return (rv);
 }
-
-static nni_option tcptran_pipe_options[] = {
-	{
-	    .o_name = NNG_OPT_LOCADDR,
-	    .o_get  = tcptran_pipe_get_locaddr,
-	},
-	{
-	    .o_name = NNG_OPT_REMADDR,
-	    .o_get  = tcptran_pipe_get_remaddr,
-	},
-	{
-	    .o_name = NNG_OPT_TCP_KEEPALIVE,
-	    .o_get  = tcptran_pipe_get_keepalive,
-	},
-	{
-	    .o_name = NNG_OPT_TCP_NODELAY,
-	    .o_get  = tcptran_pipe_get_nodelay,
-	},
-	// terminate list
-	{
-	    .o_name = NULL,
-	},
-};
 
 static nni_tran_pipe_ops tcptran_pipe_ops = {
 	.p_init   = tcptran_pipe_init,

@@ -1,6 +1,7 @@
 //
 // Copyright 2018 Staysail Systems, Inc. <info@staysail.tech>
 // Copyright 2018 Capitar IT Group BV <info@capitar.com>
+// Copyright 2018 Devolutions <info@devolutions.net>
 //
 // This software is supplied under the terms of the MIT License, a
 // copy of which should be located in the distribution where this
@@ -393,7 +394,7 @@ tcp_conn_set_nodelay(void *arg, const void *buf, size_t sz, nni_type t)
 	return (0);
 }
 
-int
+static int
 tcp_conn_set_keepalive(void *arg, const void *buf, size_t sz, nni_type t)
 {
 	nni_tcp_conn *c = arg;
@@ -412,7 +413,7 @@ tcp_conn_set_keepalive(void *arg, const void *buf, size_t sz, nni_type t)
 	return (0);
 }
 
-int
+static int
 tcp_conn_get_nodelay(void *arg, void *buf, size_t *szp, nni_type t)
 {
 	nni_tcp_conn *c   = arg;
@@ -426,7 +427,7 @@ tcp_conn_get_nodelay(void *arg, void *buf, size_t *szp, nni_type t)
 	return (nni_copyout_bool(b, buf, szp, t));
 }
 
-int
+static int
 tcp_conn_get_keepalive(void *arg, void *buf, size_t *szp, nni_type t)
 {
 	nni_tcp_conn *c   = arg;
