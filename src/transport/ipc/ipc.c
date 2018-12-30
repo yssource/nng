@@ -800,7 +800,7 @@ ipctran_ep_connect(void *arg, nni_aio *aio)
 }
 
 static int
-ipctran_ep_get_recvmaxsz(void *arg, void *v, size_t *szp, nni_opt_type t)
+ipctran_ep_get_recvmaxsz(void *arg, void *v, size_t *szp, nni_type t)
 {
 	ipctran_ep *ep = arg;
 	int         rv;
@@ -811,7 +811,7 @@ ipctran_ep_get_recvmaxsz(void *arg, void *v, size_t *szp, nni_opt_type t)
 }
 
 static int
-ipctran_ep_set_recvmaxsz(void *arg, const void *v, size_t sz, nni_opt_type t)
+ipctran_ep_set_recvmaxsz(void *arg, const void *v, size_t sz, nni_type t)
 {
 	ipctran_ep *ep = arg;
 	size_t      val;
