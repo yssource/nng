@@ -872,18 +872,6 @@ ipctran_ep_accept(void *arg, nni_aio *aio)
 }
 
 static int
-ipctran_ep_get_locaddr(void *arg, void *buf, size_t *szp, nni_opt_type t)
-{
-	ipctran_ep *ep = arg;
-	int         rv;
-
-	nni_mtx_lock(&ep->mtx);
-	rv = nni_copyout_sockaddr(&ep->sa, buf, szp, t);
-	nni_mtx_unlock(&ep->mtx);
-	return (rv);
-}
-
-static int
 ipctran_pipe_getopt(
     void *arg, const char *name, void *buf, size_t *szp, nni_type t)
 {
