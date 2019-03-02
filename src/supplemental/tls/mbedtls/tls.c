@@ -27,6 +27,8 @@
 
 #include "mbedtls/ssl.h"
 
+#include <nng/nng.h>
+
 #include "core/nng_impl.h"
 #include "core/tcp.h"
 #include "supplemental/tls/tls_api.h"
@@ -786,7 +788,7 @@ tls_close(void *arg)
 		// just like RFC.  Note that we do *NOT* close the TCP
 		// connection at this point.
 		(void) mbedtls_ssl_close_notify(&tp->ctx);
-	} else {
+	} else if (tp->tcp != NULL) {
 		nng_stream_close(tp->tcp);
 	}
 	nni_mtx_unlock(&tp->lk);

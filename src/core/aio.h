@@ -30,6 +30,13 @@ extern int nni_aio_init(nni_aio **, nni_cb, void *);
 // on zero'd memory.
 extern void nni_aio_fini(nni_aio *);
 
+// nni_aio_reap is used to arange for nni_aio_fini() to be called
+// asynchronously.  This is useful when the clean up needs to happen
+// as part of a callback on the aio itself.  Note that this function
+// returns even if the aio is currently active.  If other resources
+// need to be torn down safely, stop the AIO first.
+extern void nni_aio_reap(nni_aio *);
+
 // nni_aio_stop cancels any unfinished I/O, running completion callbacks,
 // but also prevents any new operations from starting (nni_aio_start will
 // return NNG_ESTATE).  This should be called before nni_aio_fini().  The

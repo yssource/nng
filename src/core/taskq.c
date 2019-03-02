@@ -248,6 +248,7 @@ nni_task_fini(nni_task *task)
 	// defer the reap until after the callback has finished.
 	if (task->task_busy && (task->task_thr != NULL) &&
 	    nni_thr_is_self(task->task_thr)) {
+		nni_panic("reap while active");
 		task->task_reap = true;
 		nni_mtx_unlock(&task->task_mtx);
 		return;

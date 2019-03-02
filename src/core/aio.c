@@ -109,6 +109,10 @@ struct nng_aio {
 
 	// Expire node.
 	nni_list_node a_expire_node;
+
+	// Reap node.  This defers the destruction.  Useful when
+	// cleaning up from a callback.
+	nni_reap_item a_reap;
 };
 
 static void nni_aio_expire_add(nni_aio *);
@@ -180,6 +184,12 @@ nni_aio_fini(nni_aio *aio)
 
 		NNI_FREE_STRUCT(aio);
 	}
+}
+
+void
+nni_aio_reap(nni_aio *aio)
+{
+	nni_reap(&aio->a_reap, (nni_cb) nni_fini, aio);
 }
 
 int

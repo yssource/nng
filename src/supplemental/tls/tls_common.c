@@ -55,6 +55,15 @@ tls_dialer_free(void *arg)
 // the user's completion callback.
 
 static void
+tls_conn_reap(void *arg)
+{
+	nni_tls_common *com = arg;
+
+	nng_stream_close(com);
+	nni_reap(&com->reap, (nni_cb) nng_stream_free, com);
+}
+
+static void
 tls_conn_cb(void *arg)
 {
 	nng_stream *    tls = arg;
@@ -64,7 +73,7 @@ tls_conn_cb(void *arg)
 
 	if ((rv = nni_aio_result(com->aio)) != 0) {
 		nni_aio_finish_error(com->uaio, rv);
-		nng_stream_free(tls);
+		tls_conn_reap(tls);
 		return;
 	}
 
@@ -73,7 +82,7 @@ tls_conn_cb(void *arg)
 	if ((rv = nni_tls_start(tls, tcp)) != 0) {
 		nni_aio_finish_error(com->uaio, rv);
 		nng_stream_free(tcp);
-		nng_stream_free(tls);
+		tls_conn_reap(tls);
 		return;
 	}
 
