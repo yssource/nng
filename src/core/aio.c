@@ -12,6 +12,7 @@
 #include <string.h>
 
 static nni_mtx nni_aio_lk;
+
 // These are used for expiration.
 static nni_cv   nni_aio_expire_cv;
 static int      nni_aio_expire_run;
@@ -189,7 +190,7 @@ nni_aio_fini(nni_aio *aio)
 void
 nni_aio_reap(nni_aio *aio)
 {
-	nni_reap(&aio->a_reap, (nni_cb) nni_fini, aio);
+	nni_reap(&aio->a_reap, (nni_cb) nni_aio_fini, aio);
 }
 
 int
@@ -764,13 +765,11 @@ int
 nni_aio_sys_init(void)
 {
 	int      rv;
-	nni_mtx *mtx = &nni_aio_lk;
-	nni_cv * cv  = &nni_aio_expire_cv;
 	nni_thr *thr = &nni_aio_expire_thr;
 
 	NNI_LIST_INIT(&nni_aio_expire_aios, nni_aio, a_expire_node);
-	nni_mtx_init(mtx);
-	nni_cv_init(cv, mtx);
+	nni_mtx_init(&nni_aio_lk);
+	nni_cv_init(&nni_aio_expire_cv, &nni_aio_lk);
 
 	if ((rv = nni_thr_init(thr, nni_aio_expire_loop, NULL)) != 0) {
 		nni_aio_sys_fini();

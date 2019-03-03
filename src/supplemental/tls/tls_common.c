@@ -59,7 +59,7 @@ tls_conn_reap(void *arg)
 {
 	nni_tls_common *com = arg;
 
-	nng_stream_close(com);
+	nng_stream_close((void *) com);
 	nni_reap(&com->reap, (nni_cb) nng_stream_free, com);
 }
 

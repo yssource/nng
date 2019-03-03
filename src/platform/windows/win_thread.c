@@ -141,6 +141,18 @@ nni_atomic_dec64(nni_atomic_u64 *v, uint64_t bump)
 }
 
 uint64_t
+nni_atomic_fetch_inc64(nni_atomic_u64 *v, uint64_t bump)
+{
+	return (InterlockedExchangeAdd64(&v->v, (LONGLONG) bump));
+}
+
+uint64_t
+nni_atomic_fetch_dec64(nni_atomic_u64 *v, uint64_t bump)
+{
+	return (InterlockedExchangeAdd64(&v->v, (0ll - (LONGLONG) bump)));
+}
+
+uint64_t
 nni_atomic_get64(nni_atomic_u64 *v)
 {
 

@@ -89,6 +89,8 @@ set (NNG_SRCS
     core/transport.h
     core/url.c
     core/url.h
+    core/waitblock.c
+    core/waitblock.h
 )
 
 if (NNG_PLATFORM_POSIX)

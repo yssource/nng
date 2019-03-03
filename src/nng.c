@@ -121,10 +121,18 @@ nng_recv(nng_socket s, void *buf, size_t *szp, int flags)
 int
 nng_recvmsg(nng_socket s, nng_msg **msgp, int flags)
 {
-	int      rv;
-	nng_aio *ap;
+	int           rv;
+	nng_aio *     ap;
+	nni_waitblock wb;
 
-	if ((rv = nng_aio_alloc(&ap, NULL, NULL)) != 0) {
+	if ((rv = nni_init()) != 0) {
+		return (rv);
+	}
+
+	nni_waitblock_init(&wb);
+
+	if ((rv = nng_aio_alloc(&ap, (nni_cb) nni_waitblock_done, &wb)) != 0) {
+		nni_waitblock_fini(&wb);
 		return (rv);
 	}
 	if (flags & NNG_FLAG_NONBLOCK) {
@@ -134,7 +142,7 @@ nng_recvmsg(nng_socket s, nng_msg **msgp, int flags)
 	}
 
 	nng_recv_aio(s, ap);
-	nng_aio_wait(ap);
+	nni_waitblock_wait(&wb);
 
 	if ((rv = nng_aio_result(ap)) == 0) {
 		*msgp = nng_aio_get_msg(ap);
@@ -142,7 +150,8 @@ nng_recvmsg(nng_socket s, nng_msg **msgp, int flags)
 	} else if ((rv == NNG_ETIMEDOUT) && (flags == NNG_FLAG_NONBLOCK)) {
 		rv = NNG_EAGAIN;
 	}
-	nng_aio_free(ap);
+	nni_aio_reap(ap);
+	nni_waitblock_fini(&wb);
 
 	return (rv);
 }
@@ -152,7 +161,6 @@ nng_send(nng_socket s, void *buf, size_t len, int flags)
 {
 	nng_msg *msg;
 	int      rv;
-
 	if ((rv = nng_msg_alloc(&msg, len)) != 0) {
 		return (rv);
 	}
@@ -171,10 +179,18 @@ nng_send(nng_socket s, void *buf, size_t len, int flags)
 int
 nng_sendmsg(nng_socket s, nng_msg *msg, int flags)
 {
-	int      rv;
-	nng_aio *ap;
+	int           rv;
+	nng_aio *     ap;
+	nni_waitblock wb;
 
-	if ((rv = nng_aio_alloc(&ap, NULL, NULL)) != 0) {
+	if ((rv = nni_init()) != 0) {
+		return (rv);
+	}
+
+	nni_waitblock_init(&wb);
+
+	if ((rv = nng_aio_alloc(&ap, (nni_cb) nni_waitblock_done, &wb)) != 0) {
+		nni_waitblock_fini(&wb);
 		return (rv);
 	}
 	if (flags & NNG_FLAG_NONBLOCK) {
@@ -185,10 +201,11 @@ nng_sendmsg(nng_socket s, nng_msg *msg, int flags)
 
 	nng_aio_set_msg(ap, msg);
 	nng_send_aio(s, ap);
-	nng_aio_wait(ap);
+	nni_waitblock_wait(&wb);
 
 	rv = nng_aio_result(ap);
-	nng_aio_free(ap);
+	nni_aio_reap(ap);
+	nni_waitblock_fini(&wb);
 
 	// Possibly massage nonblocking attempt.  Note that nonblocking is
 	// still done asynchronously, and the calling thread loses context.

@@ -42,6 +42,18 @@ nni_atomic_dec64(nni_atomic_u64 *v, uint64_t bump)
 }
 
 uint64_t
+nni_atomic_fetch_inc64(nni_atomic_u64 *v, uint64_t bump)
+{
+	return (atomic_fetch_add(&v->v, bump));
+}
+
+uint64_t
+nni_atomic_fetch_dec64(nni_atomic_u64 *v, uint64_t bump)
+{
+	return (atomic_fetch_sub(&v->v, bump));
+}
+
+uint64_t
 nni_atomic_get64(nni_atomic_u64 *v)
 {
 	return (atomic_load(&v->v));
@@ -104,6 +116,28 @@ nni_atomic_dec64(nni_atomic_u64 *v, uint64_t bump)
 	pthread_mutex_lock(&plat_atomic_lock);
 	v -= bump;
 	pthread_mutex_unlock(&plat_atomic_lock);
+}
+
+uint64_t
+nni_atomic_fetch_inc64(nni_atomic_u64 *v, uint64_t bump)
+{
+	uint64_t ov;
+	pthread_mutex_lock(&plat_atomic_lock);
+	ov = v;
+	v += bump;
+	pthread_mutex_unlock(&plat_atomic_lock);
+	return (ov);
+}
+
+uint64_t
+nni_atomic_fetch_dec64(nni_atomic_u64 *v, uint64_t bump)
+{
+	uint64_t ov;
+	pthread_mutex_lock(&plat_atomic_lock);
+	ov = v;
+	v -= bump;
+	pthread_mutex_unlock(&plat_atomic_lock);
+	return (ov);
 }
 
 uint64_t

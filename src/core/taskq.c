@@ -12,15 +12,14 @@
 
 typedef struct nni_taskq_thr nni_taskq_thr;
 struct nni_task {
-	nni_list_node task_node;
-	void *        task_arg;
-	nni_cb        task_cb;
-	nni_taskq *   task_tq;
-	unsigned      task_busy;
-	bool          task_prep;
-	nni_mtx       task_mtx;
-	nni_cv        task_cv;
+	nni_list_node  task_node;
+	void *         task_arg;
+	nni_cb         task_cb;
+	nni_taskq *    task_tq;
+	bool           task_prep;
+	nni_atomic_u64 task_busy;
 };
+
 struct nni_taskq_thr {
 	nni_taskq *tqt_tq;
 	nni_thr    tqt_thread;
@@ -53,12 +52,7 @@ nni_taskq_thread(void *self)
 
 			task->task_cb(task->task_arg);
 
-			nni_mtx_lock(&task->task_mtx);
-			task->task_busy--;
-			if (task->task_busy == 0) {
-				nni_cv_wake(&task->task_cv);
-			}
-			nni_mtx_unlock(&task->task_mtx);
+			nni_atomic_dec64(&task->task_busy, 1);
 
 			nni_mtx_lock(&tq->tq_mtx);
 
@@ -136,24 +130,17 @@ nni_taskq_fini(nni_taskq *tq)
 void
 nni_task_exec(nni_task *task)
 {
-	nni_mtx_lock(&task->task_mtx);
-	if (task->task_prep) {
-		task->task_prep = false;
-	} else {
-		task->task_busy++;
-	}
-	nni_mtx_unlock(&task->task_mtx);
+	uint64_t prep;
+
+	nni_atomic_inc64(&task->task_busy, 1);
+	prep            = task->task_prep;
+	task->task_prep = false;
 
 	if (task->task_cb != NULL) {
 		task->task_cb(task->task_arg);
 	}
 
-	nni_mtx_lock(&task->task_mtx);
-	task->task_busy--;
-	if (task->task_busy == 0) {
-		nni_cv_wake(&task->task_cv);
-	}
-	nni_mtx_unlock(&task->task_mtx);
+	nni_atomic_dec64(&task->task_busy, prep ? 2 : 1);
 }
 
 void
@@ -167,13 +154,10 @@ nni_task_dispatch(nni_task *task)
 		nni_task_exec(task);
 		return;
 	}
-	nni_mtx_lock(&task->task_mtx);
-	if (task->task_prep) {
-		task->task_prep = false;
-	} else {
-		task->task_busy++;
+	if (!task->task_prep) {
+		nni_atomic_inc64(&task->task_busy, 1);
 	}
-	nni_mtx_unlock(&task->task_mtx);
+	task->task_prep = false;
 
 	nni_mtx_lock(&tq->tq_mtx);
 	nni_list_append(&tq->tq_tasks, task);
@@ -184,20 +168,20 @@ nni_task_dispatch(nni_task *task)
 void
 nni_task_prep(nni_task *task)
 {
-	nni_mtx_lock(&task->task_mtx);
-	task->task_busy++;
+	nni_atomic_inc64(&task->task_busy, 1);
 	task->task_prep = true;
-	nni_mtx_unlock(&task->task_mtx);
 }
+
+#include <stdio.h>
 
 void
 nni_task_wait(nni_task *task)
 {
-	nni_mtx_lock(&task->task_mtx);
-	while (task->task_busy) {
-		nni_cv_wait(&task->task_cv);
+	// If anyone is waiting here, hopefully the completion is expected
+	// soon!
+	while (nni_atomic_get64(&task->task_busy) != 0) {
+		nni_msleep(1);
 	}
-	nni_mtx_unlock(&task->task_mtx);
 }
 
 int
@@ -209,27 +193,24 @@ nni_task_init(nni_task **taskp, nni_taskq *tq, nni_cb cb, void *arg)
 		return (NNG_ENOMEM);
 	}
 	NNI_LIST_NODE_INIT(&task->task_node);
-	nni_mtx_init(&task->task_mtx);
-	nni_cv_init(&task->task_cv, &task->task_mtx);
-	task->task_prep = false;
-	task->task_busy = 0;
-	task->task_cb   = cb;
-	task->task_arg  = arg;
-	task->task_tq   = tq != NULL ? tq : nni_taskq_systq;
-	*taskp          = task;
+	nni_atomic_init64(&task->task_busy);
+	task->task_cb  = cb;
+	task->task_arg = arg;
+	task->task_tq  = tq != NULL ? tq : nni_taskq_systq;
+	*taskp         = task;
 	return (0);
 }
 
 void
 nni_task_fini(nni_task *task)
 {
-	nni_mtx_lock(&task->task_mtx);
-	while (task->task_busy) {
-		nni_cv_wait(&task->task_cv);
+	// While this would be more elegant with a condition variable,
+	// that requires more locking, and as this is never on a hot code
+	// path, we elect to just spin/sleep.  Most of the time we won't
+	// need to spin at all.
+	while (nni_atomic_get64(&task->task_busy) != 0) {
+		nni_msleep(10);
 	}
-	nni_mtx_unlock(&task->task_mtx);
-	nni_cv_fini(&task->task_cv);
-	nni_mtx_fini(&task->task_mtx);
 	NNI_FREE_STRUCT(task);
 }
 

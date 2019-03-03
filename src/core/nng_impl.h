@@ -49,6 +49,7 @@
 #include "core/thread.h"
 #include "core/timer.h"
 #include "core/url.h"
+#include "core/waitblock.h"
 
 // transport needs to come after url
 #include "core/transport.h"

@@ -296,46 +296,114 @@ do_inproc_thr(int argc, char **argv)
 	nng_thread_destroy(thr);
 }
 
+typedef struct {
+	nng_socket s;
+	int        trips;
+	nng_aio *  rxaio;
+	nng_aio *  txaio;
+	size_t     msgsize;
+	bool       done;
+	nng_mtx *  mtx;
+	nng_cv *   cv;
+} latency_client_data;
+
+void
+latency_client_tx_cb(void *arg)
+{
+	latency_client_data *d   = arg;
+	nng_aio *            aio = d->txaio;
+	int                  rv;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("sendmsg: %s", nng_strerror(rv));
+	}
+	nng_aio_set_msg(aio, NULL);
+	nng_recv_aio(d->s, d->rxaio);
+}
+
+void
+latency_client_rx_cb(void *arg)
+{
+	latency_client_data *d   = arg;
+	nng_aio *            aio = d->rxaio;
+	int                  rv;
+	nng_msg *            msg;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("recvmsg: %s", nng_strerror(rv));
+	}
+	msg = nng_aio_get_msg(aio);
+	if (nng_msg_len(msg) != d->msgsize) {
+		die("bad message ssize");
+	}
+	// Send the reply; we just bounce back the same message.
+	d->trips--;
+	if (d->trips == 0) {
+		nng_mtx_lock(d->mtx);
+		d->done = true;
+		nng_cv_wake(d->cv);
+		nng_mtx_unlock(d->mtx);
+		nng_msg_free(msg);
+		return;
+	}
+	nng_aio_set_msg(d->rxaio, NULL);
+	nng_aio_set_msg(d->txaio, msg);
+	nng_send_aio(d->s, d->txaio);
+}
+
 void
 latency_client(const char *addr, size_t msgsize, int trips)
 {
-	nng_socket s;
-	nng_msg *  msg;
-	nng_time   start, end;
-	int        rv;
-	int        i;
-	float      total;
-	float      latency;
+	nng_msg *msg;
+	nng_time start, end;
+	int      rv;
+	float    total;
+	float    latency;
 
-	if ((rv = nng_pair_open(&s)) != 0) {
+	latency_client_data d;
+
+	memset(&d, 0, sizeof(d));
+	if (((rv = nng_mtx_alloc(&d.mtx)) != 0) ||
+	    ((rv = nng_cv_alloc(&d.cv, d.mtx)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.txaio, latency_client_tx_cb, &d)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.rxaio, latency_client_rx_cb, &d)) != 0)) {
+		die("failed initializing: %s", nng_strerror(rv));
+	}
+
+	if ((rv = nng_pair_open(&d.s)) != 0) {
 		die("nng_socket: %s", nng_strerror(rv));
 	}
 
 	// XXX: set no delay
 	// XXX: other options (TLS in the future?, Linger?)
 
-	if ((rv = nng_dial(s, addr, NULL, 0)) != 0) {
+	if ((rv = nng_dial(d.s, addr, NULL, 0)) != 0) {
 		die("nng_dial: %s", nng_strerror(rv));
 	}
 
 	if (nng_msg_alloc(&msg, msgsize) != 0) {
 		die("nng_msg_alloc: %s", nng_strerror(rv));
 	}
+	d.msgsize = msgsize;
+	d.trips   = trips;
 
 	start = nng_clock();
-	for (i = 0; i < trips; i++) {
-		if ((rv = nng_sendmsg(s, msg, 0)) != 0) {
-			die("nng_sendmsg: %s", nng_strerror(rv));
-		}
+	nng_aio_set_msg(d.txaio, msg);
+	nng_send_aio(d.s, d.txaio);
 
-		if ((rv = nng_recvmsg(s, &msg, 0)) != 0) {
-			die("nng_recvmsg: %s", nng_strerror(rv));
-		}
+	nng_mtx_lock(d.mtx);
+	while (!d.done) {
+		nng_cv_wait(d.cv);
 	}
+	nng_mtx_unlock(d.mtx);
+
 	end = nng_clock();
 
-	nng_msg_free(msg);
-	nng_close(s);
+	nng_close(d.s);
+	nng_cv_free(d.cv);
+	nng_mtx_free(d.mtx);
+	nng_aio_free(d.txaio);
+	nng_aio_free(d.rxaio);
 
 	total   = (float) ((end - start)) / 1000;
 	latency = ((float) ((total * 1000000)) / (trips * 2));
@@ -345,42 +413,102 @@ latency_client(const char *addr, size_t msgsize, int trips)
 	printf("average latency: %.3f [us]\n", latency);
 }
 
+typedef struct {
+	nng_socket s;
+	int        trips;
+	nng_aio *  txaio;
+	nng_aio *  rxaio;
+	size_t     msgsize;
+	bool       done;
+	nng_mtx *  mtx;
+	nng_cv *   cv;
+} latency_server_data;
+
+void
+latency_srv_tx_cb(void *arg)
+{
+	latency_server_data *d   = arg;
+	nng_aio *            aio = d->txaio;
+	int                  rv;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("sendmsg: %s", nng_strerror(rv));
+	}
+	d->trips--;
+	if (d->trips == 0) {
+		nng_mtx_lock(d->mtx);
+		d->done = true;
+		nng_cv_wake(d->cv);
+		nng_mtx_unlock(d->mtx);
+		return;
+	}
+	nng_recv_aio(d->s, d->rxaio);
+}
+
+void
+latency_srv_rx_cb(void *arg)
+{
+	latency_server_data *d   = arg;
+	nng_aio *            aio = d->rxaio;
+	int                  rv;
+	nng_msg *            msg;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("recvmsg: %s", nng_strerror(rv));
+	}
+
+	msg = nng_aio_get_msg(aio);
+	if (nng_msg_len(msg) != d->msgsize) {
+		die("bad message ssize");
+	}
+	// Send the reply; we just bounce back the same message.
+	nng_aio_set_msg(d->rxaio, NULL);
+	nng_aio_set_msg(d->txaio, msg);
+	nng_send_aio(d->s, d->txaio);
+}
+
 void
 latency_server(const char *addr, size_t msgsize, int trips)
 {
-	nng_socket s;
-	nng_msg *  msg;
-	int        rv;
-	int        i;
+	int                 rv;
+	latency_server_data d;
 
-	if ((rv = nng_pair_open(&s)) != 0) {
+	memset(&d, 0, sizeof(d));
+	if (((rv = nng_mtx_alloc(&d.mtx)) != 0) ||
+	    ((rv = nng_cv_alloc(&d.cv, d.mtx)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.rxaio, latency_srv_rx_cb, &d)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.txaio, latency_srv_tx_cb, &d)) != 0)) {
+		die("failed initializing: %s", nng_strerror(rv));
+	}
+
+	if ((rv = nng_pair_open(&d.s)) != 0) {
 		die("nng_socket: %s", nng_strerror(rv));
 	}
 
 	// XXX: set no delay
 	// XXX: other options (TLS in the future?, Linger?)
 
-	if ((rv = nng_listen(s, addr, NULL, 0)) != 0) {
+	if ((rv = nng_listen(d.s, addr, NULL, 0)) != 0) {
 		die("nng_listen: %s", nng_strerror(rv));
 	}
+	d.trips   = trips;
+	d.msgsize = msgsize;
 
-	for (i = 0; i < trips; i++) {
-		if ((rv = nng_recvmsg(s, &msg, 0)) != 0) {
-			die("nng_recvmsg: %s", nng_strerror(rv));
-		}
-		if (nng_msg_len(msg) != msgsize) {
-			die("wrong message size: %d != %d", nng_msg_len(msg),
-			    msgsize);
-		}
-		if ((rv = nng_sendmsg(s, msg, 0)) != 0) {
-			die("nng_sendmsg: %s", nng_strerror(rv));
-		}
+	nng_recv_aio(d.s, d.rxaio);
+
+	nng_mtx_lock(d.mtx);
+	while (!d.done) {
+		nng_cv_wait(d.cv);
 	}
-
+	nng_mtx_unlock(d.mtx);
 	// Wait a bit for things to drain... linger should do this.
 	// 100ms ought to be enough.
 	nng_msleep(100);
-	nng_close(s);
+	nng_close(d.s);
+	nng_cv_free(d.cv);
+	nng_mtx_free(d.mtx);
+	nng_aio_free(d.rxaio);
+	nng_aio_free(d.txaio);
 }
 
 // Our throughput story is quite a mess.  Mostly I think because of the poor

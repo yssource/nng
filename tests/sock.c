@@ -23,7 +23,6 @@
 
 TestMain("Socket Operations", {
 	atexit(nng_fini);
-	//	Reset({ nng_fini(); });
 	Reset({ nng_closeall(); });
 
 	Convey("We are able to open a PAIR socket", {
