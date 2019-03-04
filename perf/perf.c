@@ -515,20 +515,69 @@ latency_server(const char *addr, size_t msgsize, int trips)
 // caching and message reuse.  We should probably implement a message pooling
 // API somewhere.
 
+typedef struct {
+	nng_socket s;
+	int        trips;
+	size_t     msgsize;
+	nng_aio *  aio;
+	bool       done;
+	nng_mtx *  mtx;
+	nng_cv *   cv;
+} tput_srv_data;
+
+void
+tput_srv_cb(void *arg)
+{
+	tput_srv_data *d   = arg;
+	nng_aio *      aio = d->aio;
+	nng_msg *      msg;
+	int            rv;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("recvmsg: %s", nng_strerror(rv));
+	}
+	msg = nng_aio_get_msg(aio);
+
+	if (nng_msg_len(msg) != d->msgsize) {
+		die("wrong message size: %d != %d", nng_msg_len(msg),
+		    d->msgsize);
+	}
+	nng_aio_set_msg(aio, NULL);
+	nng_msg_free(msg);
+	d->trips--;
+	if (d->trips == 0) {
+		nng_mtx_lock(d->mtx);
+		d->done = true;
+		nng_cv_wake(d->cv);
+		nng_mtx_unlock(d->mtx);
+		return;
+	}
+	nng_recv_aio(d->s, aio);
+}
+
 void
 throughput_server(const char *addr, size_t msgsize, int count)
 {
-	nng_socket s;
-	nng_msg *  msg;
-	int        rv;
-	int        i;
-	uint64_t   start, end;
-	float      msgpersec, mbps, total;
+	nng_socket    s;
+	nng_msg *     msg;
+	int           rv;
+	tput_srv_data d;
+	uint64_t      start, end;
+	float         msgpersec, mbps, total;
 
-	if ((rv = nng_pair_open(&s)) != 0) {
+	memset(&d, 0, sizeof(d));
+	if (((rv = nng_mtx_alloc(&d.mtx)) != 0) ||
+	    ((rv = nng_cv_alloc(&d.cv, d.mtx)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.aio, tput_srv_cb, &d)) != 0)) {
+		die("failed initializing: %s", nng_strerror(rv));
+	}
+	d.trips   = count;
+	d.msgsize = msgsize;
+
+	if ((rv = nng_pair_open(&d.s)) != 0) {
 		die("nng_socket: %s", nng_strerror(rv));
 	}
-	rv = nng_setopt_int(s, NNG_OPT_RECVBUF, 128);
+	rv = nng_setopt_int(d.s, NNG_OPT_RECVBUF, 128);
 	if (rv != 0) {
 		die("nng_setopt(nng_opt_recvbuf): %s", nng_strerror(rv));
 	}
@@ -536,31 +585,28 @@ throughput_server(const char *addr, size_t msgsize, int count)
 	// XXX: set no delay
 	// XXX: other options (TLS in the future?, Linger?)
 
-	if ((rv = nng_listen(s, addr, NULL, 0)) != 0) {
+	if ((rv = nng_listen(d.s, addr, NULL, 0)) != 0) {
 		die("nng_listen: %s", nng_strerror(rv));
 	}
 
 	// Receive first synchronization message.
-	if ((rv = nng_recvmsg(s, &msg, 0)) != 0) {
+	if ((rv = nng_recvmsg(d.s, &msg, 0)) != 0) {
 		die("nng_recvmsg: %s", nng_strerror(rv));
 	}
 	nng_msg_free(msg);
 	start = nng_clock();
 
-	for (i = 0; i < count; i++) {
-		if ((rv = nng_recvmsg(s, &msg, 0)) != 0) {
-			die("nng_recvmsg: %s", nng_strerror(rv));
-		}
-		if (nng_msg_len(msg) != msgsize) {
-			die("wrong message size: %d != %d", nng_msg_len(msg),
-			    msgsize);
-		}
-		nng_msg_free(msg);
+	nng_recv_aio(d.s, d.aio);
+	nng_mtx_lock(d.mtx);
+	while (!d.done) {
+		nng_cv_wait(d.cv);
 	}
+	nng_mtx_unlock(d.mtx);
+
 	end = nng_clock();
 	// Send a synchronization message (empty) to the other side,
 	// and wait a bit to make sure it goes out the wire.
-	nng_send(s, "", 0, 0);
+	nng_send(d.s, "", 0, 0);
 	nng_msleep(200);
 	nng_close(s);
 	total     = (float) ((end - start)) / 1000;
@@ -573,59 +619,102 @@ throughput_server(const char *addr, size_t msgsize, int count)
 	printf("throughput: %.3f [Mb/s]\n", mbps);
 }
 
+typedef struct {
+	nng_socket s;
+	int        trips;
+	size_t     msgsize;
+	nng_aio *  aio;
+	bool       done;
+	nng_mtx *  mtx;
+	nng_cv *   cv;
+} tput_cli_data;
+
+void
+tput_cli_cb(void *arg)
+{
+	tput_srv_data *d   = arg;
+	nng_aio *      aio = d->aio;
+	nng_msg *      msg;
+	int            rv;
+
+	if ((rv = nng_aio_result(aio)) != 0) {
+		die("sendmsg: %s", nng_strerror(rv));
+	}
+
+	d->trips--;
+	if (d->trips == 0) {
+		nng_mtx_lock(d->mtx);
+		d->done = true;
+		nng_cv_wake(d->cv);
+		nng_mtx_unlock(d->mtx);
+		return;
+	}
+	if ((rv = nng_msg_alloc(&msg, d->msgsize)) != 0) {
+		die("msg_alloc: %s", nng_strerror(rv));
+	}
+	nng_aio_set_msg(aio, msg);
+	nng_send_aio(d->s, aio);
+}
+
 void
 throughput_client(const char *addr, size_t msgsize, int count)
 {
-	nng_socket s;
-	nng_msg *  msg;
-	int        rv;
-	int        i;
+	nng_msg *     msg;
+	int           rv;
+	tput_cli_data d;
+
+	memset(&d, 0, sizeof(d));
+	if (((rv = nng_mtx_alloc(&d.mtx)) != 0) ||
+	    ((rv = nng_cv_alloc(&d.cv, d.mtx)) != 0) ||
+	    ((rv = nng_aio_alloc(&d.aio, tput_cli_cb, &d)) != 0)) {
+		die("failed initializing: %s", nng_strerror(rv));
+	}
+	d.trips   = count;
+	d.msgsize = msgsize;
 
 	// We send one extra zero length message to start the timer.
 	count++;
 
-	if ((rv = nng_pair_open(&s)) != 0) {
+	if ((rv = nng_pair_open(&d.s)) != 0) {
 		die("nng_socket: %s", nng_strerror(rv));
 	}
 
 	// XXX: set no delay
 	// XXX: other options (TLS in the future?, Linger?)
 
-	rv = nng_setopt_int(s, NNG_OPT_SENDBUF, 128);
+	rv = nng_setopt_int(d.s, NNG_OPT_SENDBUF, 128);
 	if (rv != 0) {
 		die("nng_setopt(nng_opt_sendbuf): %s", nng_strerror(rv));
 	}
 
-	rv = nng_setopt_ms(s, NNG_OPT_RECVTIMEO, 5000);
+	rv = nng_setopt_ms(d.s, NNG_OPT_RECVTIMEO, 5000);
 	if (rv != 0) {
 		die("nng_setopt(nng_opt_recvtimeo): %s", nng_strerror(rv));
 	}
 
-	if ((rv = nng_dial(s, addr, NULL, 0)) != 0) {
+	if ((rv = nng_dial(d.s, addr, NULL, 0)) != 0) {
 		die("nng_dial: %s", nng_strerror(rv));
 	}
 
 	if ((rv = nng_msg_alloc(&msg, 0)) != 0) {
 		die("nng_msg_alloc: %s", nng_strerror(rv));
 	}
-	if ((rv = nng_sendmsg(s, msg, 0)) != 0) {
+	if ((rv = nng_sendmsg(d.s, msg, 0)) != 0) {
 		die("nng_sendmsg: %s", nng_strerror(rv));
 	}
 
-	for (i = 0; i < count; i++) {
-		if ((rv = nng_msg_alloc(&msg, msgsize)) != 0) {
-			die("nng_msg_alloc: %s", nng_strerror(rv));
-		}
-
-		if ((rv = nng_sendmsg(s, msg, 0)) != 0) {
-			die("nng_sendmsg: %s", nng_strerror(rv));
-		}
+	// One message for synchronization on remote side.
+	if ((rv = nng_msg_alloc(&msg, msgsize)) != 0) {
+		die("nng_msg_alloc: %s", nng_strerror(rv));
 	}
 
+	nng_aio_set_msg(d.aio, msg);
+	nng_send_aio(d.s, d.aio);
+
 	// Attempt to get the completion indication from the other side.
-	if (nng_recvmsg(s, &msg, 0) == 0) {
+	if (nng_recvmsg(d.s, &msg, 0) == 0) {
 		nng_msg_free(msg);
 	}
 
-	nng_close(s);
+	nng_close(d.s);
 }
